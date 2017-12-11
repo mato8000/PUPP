@@ -4,6 +4,7 @@
 
 #include "pch.h"
 #include "Game.h"
+#include "Utils.h"
 
 extern void ExitGame();
 
@@ -39,20 +40,42 @@ void Game::Initialize(HWND window, int width, int height) {
 	m_keyboard = std::make_unique<Keyboard>();
 	m_mouse = std::make_unique<Mouse>();
 	m_mouse->SetWindow(window);
+	m_mouse->SetMode(Mouse::MODE_RELATIVE);
 
 	m_physics = std::make_unique<Physics>();
 	m_physics->Init();
 
-	auto material = m_physics->physics->createMaterial(.5f, .5f, .6f);
-	//地面
+	auto material = m_physics->physics->createMaterial(.5f, .5f, .01f);
+	//床と天井
 	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(0, 1, 0, 0), *material));
+	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(PxVec3(0, 20, 0), PxVec3(0, -1, 0)), *material));
 
 	//プレイヤー
-	auto shapeBox = m_physics->physics->createShape(PxBoxGeometry(1, 1, 1), *material);
-	auto transform = PxTransform(PxVec3(0, 2, 0));
-	auto body = m_physics->physics->createRigidDynamic(transform);
-	body->attachShape(*shapeBox);
-	m_physics->scene->addActor(*body);
+	auto shapeBox = m_physics->physics->createShape(PxBoxGeometry(.5f, 1, .5f), *material);
+	{
+		auto transform = PxTransform(PxVec3(0, 2, 0));
+		auto body = m_physics->physics->createRigidDynamic(transform);
+		body->setRigidDynamicLockFlags(PxRigidDynamicLockFlag::eLOCK_ANGULAR_X | PxRigidDynamicLockFlag::eLOCK_ANGULAR_Z);
+		body->attachShape(*shapeBox);
+		m_physics->scene->addActor(*body);
+		player = body;
+	}
+
+	//other
+	{
+		auto transform = PxTransform(PxVec3(0, 2, -10));
+		auto body = m_physics->physics->createRigidDynamic(transform);
+		body->attachShape(*shapeBox);
+		m_physics->scene->addActor(*body);
+	}
+
+	//another
+	{
+		auto transform = PxTransform(PxVec3(10, 2, -10));
+		auto body = m_physics->physics->createRigidDynamic(transform);
+		body->attachShape(*shapeBox);
+		m_physics->scene->addActor(*body);
+	}
 
 	material->release();
 	shapeBox->release();
@@ -76,6 +99,41 @@ void Game::Update(DX::StepTimer const& timer) {
 	if (kb.Escape) PostQuitMessage(0);
 	auto mouse = m_mouse->GetState();
 
+	float fSpeed = 2;
+	PxVec3 axis = PxVec3(PxZero);
+	if (kb.W) {
+		axis += PxVec3(0, 0, -1);
+	}
+	if (kb.A) {
+		axis += PxVec3(1, 0, 0);
+	}
+	if (kb.S) {
+		axis += PxVec3(0, 0, 1);
+	}
+	if (kb.D) {
+		axis += PxVec3(-1, 0, 0);
+	}
+	if (kb.LeftShift) {
+		fSpeed *= 2.f;
+	}
+	if (axis.normalize()) {
+		axis *= fSpeed;
+		axis.y = player->getLinearVelocity().y;
+		player->setLinearVelocity(player->getGlobalPose().q.rotate(axis));
+	}
+
+	if (kb.Space) {
+		player->addForce(PxVec3(0, 1, 0), PxForceMode::eIMPULSE);
+	}
+
+	if (mouse.positionMode == Mouse::MODE_RELATIVE) {
+		//Vector3 delta = Vector3(mouse.x, mouse.y, 0);
+		player->setGlobalPose(PxTransform(player->getGlobalPose().p, player->getGlobalPose().q * PxQuat((float)mouse.x / 100, PxVec3(0, 1, 0))));
+
+		cameraPitch += (float)mouse.y / 100;
+		cameraPitch = std::min(std::max(cameraPitch, -XM_PI * 70.f / 180.f), XM_PI * 70.f / 180.f);
+	}
+
 	m_physics->scene->simulate(1.0f / 60);
 	m_physics->scene->fetchResults(true);
 }
@@ -90,19 +148,29 @@ void Game::Render() {
 	Clear();
 
 	// TODO: Add your rendering code here.
+
+	//カメラの設定
+	auto playerPos = player->getGlobalPose();
+	auto pxCameraPos = playerPos.transform(PxVec3(0, 2, 4));
+	//m_view = Matrix::CreateLookAt(ConvertVector(pxCameraPos), ConvertVector(playerPos.p + PxVec3(0, 1, 0)), Vector3::UnitY);
+	m_view = Matrix::CreateLookAt(ConvertVector(pxCameraPos), ConvertVector(playerPos.p + PxVec3(0, 1, 0)), Vector3::UnitY)
+		* Matrix::CreateFromYawPitchRoll(0, cameraPitch, 0);
+
+	//座標系の変換とスケーリング
+	const float fWorldScale = 1.f;
+	Matrix worldScale = Matrix::CreateScale(fWorldScale, fWorldScale, -fWorldScale);
+
 	PxU32 nbActors = m_physics->scene->getNbActors(PxActorTypeFlag::eRIGID_DYNAMIC);
 	if (nbActors) {
-		//std::vector<PxRigidActor*> actors(nbActors);
-		//m_physics->scene->getActors(PxActorTypeFlag::eRIGID_DYNAMIC, reinterpret_cast<PxActor**>(&actors[0]), nbActors);
+		std::vector<PxRigidActor*> actors(nbActors);
+		m_physics->scene->getActors(PxActorTypeFlag::eRIGID_DYNAMIC, reinterpret_cast<PxActor**>(&actors[0]), nbActors);
 
-		//for (int i = 0; i < nbActors; ++i) {
-		//	PxMat44 world(actors[i]->getGlobalPose());
-		//	m_world = world;
-		//	m_shape->Draw(m_world, m_view, m_proj);
-		//}
+		for (int i = 0; i < nbActors; ++i) {
+			PxMat44 world(actors[i]->getGlobalPose());
+			m_world = ConvertMatrix(world) * worldScale;
+			m_shape->Draw(m_world, m_view, m_proj);
+		}
 	}
-
-	//m_shape->Draw(m_world, m_view, m_proj);
 
 	Present();
 }
@@ -232,7 +300,7 @@ void Game::CreateDevice() {
 	DX::ThrowIfFailed(context.As(&m_d3dContext));
 
 	// TODO: Initialize device dependent objects here (independent of window size).
-	m_shape = GeometricPrimitive::CreateBox(m_d3dContext.Get(), XMFLOAT3(2,2,2));
+	m_shape = GeometricPrimitive::CreateBox(m_d3dContext.Get(), XMFLOAT3(1, 2, 1), false);
 	m_world = SimpleMath::Matrix::Identity;
 }
 
@@ -323,8 +391,8 @@ void Game::CreateResources() {
 	DX::ThrowIfFailed(m_d3dDevice->CreateDepthStencilView(depthStencil.Get(), &depthStencilViewDesc, m_depthStencilView.ReleaseAndGetAddressOf()));
 
 	// TODO: Initialize windows-size dependent objects here.
-	m_view = Matrix::CreateLookAt(Vector3(2.f, 2.f, 2.f), Vector3::Zero, Vector3::UnitY);
-	m_proj = Matrix::CreatePerspectiveFieldOfView(XM_PI / 4.f, float(backBufferWidth) / backBufferHeight, 0.1f, 10.f);
+	m_view = Matrix::CreateLookAt(Vector3(0.f, 2.f, -4.f), Vector3::Zero, Vector3::UnitY);
+	m_proj = Matrix::CreatePerspectiveFieldOfView(XM_PI / 4.f, float(backBufferWidth) / backBufferHeight, 0.1f, 1000.f);
 }
 
 void Game::OnDeviceLost() {

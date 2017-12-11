@@ -69,4 +69,7 @@ private:
 	std::unique_ptr<DirectX::GeometricPrimitive> m_shape;
 
 	std::unique_ptr<Physics> m_physics;
+
+	physx::PxRigidDynamic* player;
+	float cameraPitch = 0;
 };
