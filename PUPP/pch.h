@@ -64,16 +64,20 @@
 //PhysX
 #include "PxPhysicsAPI.h"
 
-#ifdef _DEBUG
-#pragma comment(lib, "DirectXTK_d.lib")
+#if _DEBUG
+#pragma comment(lib, "DirectXTK.lib")
 #pragma comment(lib, "PhysX3DEBUG_x86.lib")
 #pragma comment(lib, "PhysX3CommonDEBUG_x86.lib")
 #pragma comment(lib, "PxFoundationDEBUG_x86.lib")
+#pragma comment(lib, "PhysX3ExtensionsDEBUG.lib")
+#pragma comment(lib, "PxPvdSDKDEBUG_x86.lib")
 #else
 #pragma comment(lib, "DirectXTK.lib")
-#pragma comment(lib, "PhysX3_x86.lib")
-#pragma comment(lib, "PhysX3Common_x86.lib")
-#pragma comment(lib, "PxFoundation_x86.lib")
+#pragma comment(lib, "PhysX3CHECKED_x86.lib")
+#pragma comment(lib, "PhysX3CommonCHECKED_x86.lib")
+#pragma comment(lib, "PxFoundationCHECKED_x86.lib")
+#pragma comment(lib, "PhysX3ExtensionsCHECKED.lib")
+#pragma comment(lib, "PxPvdSDKCHECKED_x86.lib")
 #endif
 
 namespace DX

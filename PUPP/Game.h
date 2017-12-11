@@ -5,6 +5,7 @@
 #pragma once
 
 #include "StepTimer.h"
+#include "Physics.h"
 
 // A basic game implementation that creates a D3D11 device and
 // provides a game loop.
@@ -66,4 +67,6 @@ private:
 	DirectX::SimpleMath::Matrix m_view;
 	DirectX::SimpleMath::Matrix m_proj;
 	std::unique_ptr<DirectX::GeometricPrimitive> m_shape;
+
+	std::unique_ptr<Physics> m_physics;
 };

@@ -9,6 +9,7 @@ extern void ExitGame();
 
 using namespace DirectX;
 using namespace SimpleMath;
+using namespace physx;
 
 using Microsoft::WRL::ComPtr;
 
@@ -32,12 +33,29 @@ void Game::Initialize(HWND window, int width, int height) {
 	// TODO: Change the timer settings if you want something other than the default variable timestep mode.
 	// e.g. for 60 FPS fixed timestep update logic, call:
 
-	m_timer.SetFixedTimeStep(true);
-	m_timer.SetTargetElapsedSeconds(1.0 / 60);
+	//m_timer.SetFixedTimeStep(true);
+	//m_timer.SetTargetElapsedSeconds(1.0 / 60);
 
 	m_keyboard = std::make_unique<Keyboard>();
 	m_mouse = std::make_unique<Mouse>();
 	m_mouse->SetWindow(window);
+
+	m_physics = std::make_unique<Physics>();
+	m_physics->Init();
+
+	auto material = m_physics->physics->createMaterial(.5f, .5f, .6f);
+	//地面
+	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(0, 1, 0, 0), *material));
+
+	//プレイヤー
+	auto shapeBox = m_physics->physics->createShape(PxBoxGeometry(1, 1, 1), *material);
+	auto transform = PxTransform(PxVec3(0, 2, 0));
+	auto body = m_physics->physics->createRigidDynamic(transform);
+	body->attachShape(*shapeBox);
+	m_physics->scene->addActor(*body);
+
+	material->release();
+	shapeBox->release();
 }
 
 // Executes the basic game loop.
@@ -57,6 +75,9 @@ void Game::Update(DX::StepTimer const& timer) {
 	auto kb = m_keyboard->GetState();
 	if (kb.Escape) PostQuitMessage(0);
 	auto mouse = m_mouse->GetState();
+
+	m_physics->scene->simulate(1.0f / 60);
+	m_physics->scene->fetchResults(true);
 }
 
 // Draws the scene.
@@ -69,7 +90,19 @@ void Game::Render() {
 	Clear();
 
 	// TODO: Add your rendering code here.
-	m_shape->Draw(m_world, m_view, m_proj);
+	PxU32 nbActors = m_physics->scene->getNbActors(PxActorTypeFlag::eRIGID_DYNAMIC);
+	if (nbActors) {
+		//std::vector<PxRigidActor*> actors(nbActors);
+		//m_physics->scene->getActors(PxActorTypeFlag::eRIGID_DYNAMIC, reinterpret_cast<PxActor**>(&actors[0]), nbActors);
+
+		//for (int i = 0; i < nbActors; ++i) {
+		//	PxMat44 world(actors[i]->getGlobalPose());
+		//	m_world = world;
+		//	m_shape->Draw(m_world, m_view, m_proj);
+		//}
+	}
+
+	//m_shape->Draw(m_world, m_view, m_proj);
 
 	Present();
 }
@@ -199,7 +232,7 @@ void Game::CreateDevice() {
 	DX::ThrowIfFailed(context.As(&m_d3dContext));
 
 	// TODO: Initialize device dependent objects here (independent of window size).
-	m_shape = GeometricPrimitive::CreateSphere(m_d3dContext.Get());
+	m_shape = GeometricPrimitive::CreateBox(m_d3dContext.Get(), XMFLOAT3(2,2,2));
 	m_world = SimpleMath::Matrix::Identity;
 }
 
@@ -296,6 +329,7 @@ void Game::CreateResources() {
 
 void Game::OnDeviceLost() {
 	// TODO: Add Direct3D resource cleanup here.
+	m_physics->Cleanup();
 	m_shape.reset();
 
 	m_depthStencilView.Reset();
