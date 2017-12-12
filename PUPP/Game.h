@@ -6,6 +6,7 @@
 
 #include "StepTimer.h"
 #include "Physics.h"
+#include "GameObject.h"
 
 // A basic game implementation that creates a D3D11 device and
 // provides a game loop.
@@ -62,14 +63,20 @@ private:
 
 	std::unique_ptr<DirectX::Keyboard> m_keyboard;
 	std::unique_ptr<DirectX::Mouse> m_mouse;
+	DirectX::Mouse::ButtonStateTracker m_MouseTracker;
 
-	DirectX::SimpleMath::Matrix m_world;
 	DirectX::SimpleMath::Matrix m_view;
 	DirectX::SimpleMath::Matrix m_proj;
-	std::unique_ptr<DirectX::GeometricPrimitive> m_shape;
+
+	std::unique_ptr<DirectX::GeometricPrimitive> m_shapeBox;
+	std::unique_ptr<DirectX::GeometricPrimitive> m_shapeSphere;
 
 	std::unique_ptr<Physics> m_physics;
+	physx::PxMaterial* m_pxDefaultMaterial;
+	physx::PxShape* m_pxShapeSphere;
 
 	physx::PxRigidDynamic* player;
 	float cameraPitch = 0;
+
+	std::vector<std::unique_ptr<GameObject>> gameObjects;
 };

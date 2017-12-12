@@ -45,13 +45,15 @@ void Game::Initialize(HWND window, int width, int height) {
 	m_physics = std::make_unique<Physics>();
 	m_physics->Init();
 
-	auto material = m_physics->physics->createMaterial(.5f, .5f, .01f);
+	m_pxDefaultMaterial = m_physics->physics->createMaterial(.5f, .5f, .01f);
 	//床と天井
-	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(0, 1, 0, 0), *material));
-	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(PxVec3(0, 20, 0), PxVec3(0, -1, 0)), *material));
+	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(0, 1, 0, 0), *m_pxDefaultMaterial));
+	m_physics->scene->addActor(*PxCreatePlane(*m_physics->physics, PxPlane(PxVec3(0, 20, 0), PxVec3(0, -1, 0)), *m_pxDefaultMaterial));
+
+	auto shapeBox = m_physics->physics->createShape(PxBoxGeometry(.5f, 1, .5f), *m_pxDefaultMaterial);
+	m_pxShapeSphere = m_physics->physics->createShape(PxSphereGeometry(0.1f), *m_pxDefaultMaterial);
 
 	//プレイヤー
-	auto shapeBox = m_physics->physics->createShape(PxBoxGeometry(.5f, 1, .5f), *material);
 	{
 		auto transform = PxTransform(PxVec3(0, 2, 0));
 		auto body = m_physics->physics->createRigidDynamic(transform);
@@ -59,6 +61,11 @@ void Game::Initialize(HWND window, int width, int height) {
 		body->attachShape(*shapeBox);
 		m_physics->scene->addActor(*body);
 		player = body;
+
+		auto go = std::make_unique<GameObject>();
+		go->rigidActor = body;
+		go->shape = &m_shapeBox;
+		gameObjects.push_back(std::move(go));
 	}
 
 	//other
@@ -67,6 +74,11 @@ void Game::Initialize(HWND window, int width, int height) {
 		auto body = m_physics->physics->createRigidDynamic(transform);
 		body->attachShape(*shapeBox);
 		m_physics->scene->addActor(*body);
+
+		auto go = std::make_unique<GameObject>();
+		go->rigidActor = body;
+		go->shape = &m_shapeBox;
+		gameObjects.push_back(std::move(go));
 	}
 
 	//another
@@ -75,9 +87,13 @@ void Game::Initialize(HWND window, int width, int height) {
 		auto body = m_physics->physics->createRigidDynamic(transform);
 		body->attachShape(*shapeBox);
 		m_physics->scene->addActor(*body);
+
+		auto go = std::make_unique<GameObject>();
+		go->rigidActor = body;
+		go->shape = &m_shapeBox;
+		gameObjects.push_back(std::move(go));
 	}
 
-	material->release();
 	shapeBox->release();
 }
 
@@ -97,7 +113,9 @@ void Game::Update(DX::StepTimer const& timer) {
 	// TODO: Add your game logic here.
 	auto kb = m_keyboard->GetState();
 	if (kb.Escape) PostQuitMessage(0);
+
 	auto mouse = m_mouse->GetState();
+	m_MouseTracker.Update(mouse);
 
 	float fSpeed = 2;
 	PxVec3 axis = PxVec3(PxZero);
@@ -127,11 +145,30 @@ void Game::Update(DX::StepTimer const& timer) {
 	}
 
 	if (mouse.positionMode == Mouse::MODE_RELATIVE) {
-		//Vector3 delta = Vector3(mouse.x, mouse.y, 0);
 		player->setGlobalPose(PxTransform(player->getGlobalPose().p, player->getGlobalPose().q * PxQuat((float)mouse.x / 100, PxVec3(0, 1, 0))));
 
 		cameraPitch += (float)mouse.y / 100;
 		cameraPitch = std::min(std::max(cameraPitch, -XM_PI * 70.f / 180.f), XM_PI * 70.f / 180.f);
+	}
+
+	if (m_MouseTracker.leftButton == Mouse::ButtonStateTracker::PRESSED) {
+		//Fire
+		{
+			auto playerTransform = player->getGlobalPose();
+			auto front = playerTransform.rotate(PxVec3(0, 0, -1));
+			auto transform = PxTransform(playerTransform.p + front * 2);
+			auto body = m_physics->physics->createRigidDynamic(transform);
+			body->attachShape(*m_pxShapeSphere);
+			m_physics->scene->addActor(*body);
+
+			auto go = std::make_unique<GameObject>();
+			go->rigidActor = body;
+			go->shape = &m_shapeSphere;
+			gameObjects.push_back(std::move(go));
+
+			body->setMass(0.1f);
+			body->setLinearVelocity(PxQuat(cameraPitch, PxVec3(0, 1, 0).cross(front)).rotate(front) * 40);
+		}
 	}
 
 	m_physics->scene->simulate(1.0f / 60);
@@ -152,24 +189,11 @@ void Game::Render() {
 	//カメラの設定
 	auto playerPos = player->getGlobalPose();
 	auto pxCameraPos = playerPos.transform(PxVec3(0, 2, 4));
-	//m_view = Matrix::CreateLookAt(ConvertVector(pxCameraPos), ConvertVector(playerPos.p + PxVec3(0, 1, 0)), Vector3::UnitY);
 	m_view = Matrix::CreateLookAt(ConvertVector(pxCameraPos), ConvertVector(playerPos.p + PxVec3(0, 1, 0)), Vector3::UnitY)
 		* Matrix::CreateFromYawPitchRoll(0, cameraPitch, 0);
 
-	//座標系の変換とスケーリング
-	const float fWorldScale = 1.f;
-	Matrix worldScale = Matrix::CreateScale(fWorldScale, fWorldScale, -fWorldScale);
-
-	PxU32 nbActors = m_physics->scene->getNbActors(PxActorTypeFlag::eRIGID_DYNAMIC);
-	if (nbActors) {
-		std::vector<PxRigidActor*> actors(nbActors);
-		m_physics->scene->getActors(PxActorTypeFlag::eRIGID_DYNAMIC, reinterpret_cast<PxActor**>(&actors[0]), nbActors);
-
-		for (int i = 0; i < nbActors; ++i) {
-			PxMat44 world(actors[i]->getGlobalPose());
-			m_world = ConvertMatrix(world) * worldScale;
-			m_shape->Draw(m_world, m_view, m_proj);
-		}
+	for (const auto& go : gameObjects) {
+		go->Draw(m_view, m_proj);
 	}
 
 	Present();
@@ -300,8 +324,8 @@ void Game::CreateDevice() {
 	DX::ThrowIfFailed(context.As(&m_d3dContext));
 
 	// TODO: Initialize device dependent objects here (independent of window size).
-	m_shape = GeometricPrimitive::CreateBox(m_d3dContext.Get(), XMFLOAT3(1, 2, 1), false);
-	m_world = SimpleMath::Matrix::Identity;
+	m_shapeBox = GeometricPrimitive::CreateBox(m_d3dContext.Get(), XMFLOAT3(1, 2, 1), false);
+	m_shapeSphere = GeometricPrimitive::CreateSphere(m_d3dContext.Get(), 0.2f, 16U, false);
 }
 
 // Allocate all memory resources that change on a window SizeChanged event.
@@ -398,7 +422,7 @@ void Game::CreateResources() {
 void Game::OnDeviceLost() {
 	// TODO: Add Direct3D resource cleanup here.
 	m_physics->Cleanup();
-	m_shape.reset();
+	m_shapeBox.reset();
 
 	m_depthStencilView.Reset();
 	m_renderTargetView.Reset();
